@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="blush">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#E2B59A">
+  <meta name="description" content="message me!">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none'; media-src 'none'; child-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>contact me!</title>
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="../assets/icons/icon.svg">
+  <link rel="apple-touch-icon" href="../assets/icons/icon.svg">
+  <link rel="preload" as="font" type="font/woff2" href="../assets/fonts/font.woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/style/site.css">
+  <script src="../assets/style/theme.js"></script>
+  <script defer src="../assets/worker/pwa.js" data-site-root="../"></script>
+  <script defer src="../assets/core/client.js"></script>
+  <script defer src="../assets/core/ui.js"></script>
+  <script defer src="../assets/core/utils.js"></script>
+  <script defer src="./message.js"></script>
+</head>
+<body class="info-page message-page">
+  <main>
+    <h1>contact me!</h1>
+
+    <section class="info-grid" aria-label="Message me intro">
+      <figure>
+        <div class="info-list">
+          <div class="info-item">
+            <p class="info-copy">Feel free to message me anytime! I'd love to chat about life and whatnot.</p>
+            <p class="info-copy">If you are sending something personal and need to make sure only I can read it, hide the message using the tool below and send me the link.</p>
+          </div>
+        </div>
+      </figure>
+    </section>
+
+    <section class="home-section message-section" aria-label="Message alias">
+      <h2 id="message-heading" class="section-heading" aria-live="polite">email</h2>
+
+      <div class="info-action-row">
+        <button id="message-open" class="message-link message-open-button" type="button">open email</button>
+
+        <button id="message-copy" class="message-link message-copy-button" type="button">copy email</button>
+        
+      </div>
+    </section>
+
+    <section class="home-section message-section" aria-label="Hide a message">
+      <h2 id="hide-msg-heading" class="section-heading" aria-live="polite">hide message</h2>
+
+      <textarea
+        id="hide-msg-text"
+        class="verify-input tools-textarea"
+        rows="1"
+        data-min-lines="1"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="message to hide"
+      ></textarea>
+
+
+      <div class="info-action-row">
+        <button id="hide-msg-submit" class="verify-submit" type="button">hide</button>
+        <button id="hide-msg-qr" class="verify-submit" type="button" hidden>QR</button>
+        <button id="hide-msg-copy-link" class="verify-submit" type="button" hidden>share link</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

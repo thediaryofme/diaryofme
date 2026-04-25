@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="blush">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#E2B59A">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <meta name="description" content="QR code landing page">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-4ZOlHs6Ite4e/sLLChfNWTaVgm/33BlmfBursdQOvp4=' 'self' ; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none'; media-src 'none'; child-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>qr code</title>
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="../../assets/icons/icon.svg">
+  <link rel="apple-touch-icon" href="../../assets/icons/icon.svg">
+  <link rel="preload" as="font" type="font/woff2" href="../../assets/fonts/font.woff2" crossorigin>
+  <link rel="stylesheet" href="../../assets/style/site.css">
+    <script src="../../assets/style/theme.js"></script>
+  <script defer src="../../assets/worker/pwa.js" data-site-root="../../"></script>
+  <script defer src="../../assets/core/qrcode.js"></script>
+  <script defer src="../../assets/core/ui.js"></script>
+  <script defer src="./qr.js"></script>
+</head>
+<body class="info-page">
+  <main>
+    <h1>qr code</h1>
+
+    <section class="info-grid" aria-label="Signature QR code">
+      <figure class="qr-figure">
+        <img id="qr-canvas" alt="Signature QR code" hidden>
+      </figure>
+      <h2 id="qr-heading" class="section-heading" aria-live="polite" hidden>export</h2>
+      <div class="qr-actions">
+        <a id="qr-download" class="verify-submit" download="signature-qr.png" hidden>download</a>
+        <button id="qr-copy-link" class="verify-submit" type="button" hidden>share link</button>
+      </div>
+    </section>
+  </main>
+  <script>!function(){try{var e=parseInt(sessionStorage.getItem("qr-ts")||"0",10);if(Date.now()-e<15e3){var r=sessionStorage.getItem("qr-image")||"";if(r){sessionStorage.removeItem("qr-ts"),sessionStorage.removeItem("qr-image"),window.__qrPrerendered=r;var t=document.getElementById("qr-canvas");t&&(t.src=r,t.removeAttribute("hidden"))}}}catch(e){}}();</script>
+</body>
+</html>

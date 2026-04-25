@@ -1,0 +1,21 @@
+{
+  "name": "diary",
+  "short_name": "diary",
+  "id": "./",
+  "lang": "en",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#E2B59A",
+  "theme_color": "#E2B59A",
+  "description": "diary",
+  "icons": [
+    {
+      "src": "./assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

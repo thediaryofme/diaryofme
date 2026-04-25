@@ -1,0 +1,537 @@
+core.wasm <-€<- Deterministic Cryptography Module
+================================================
+A single WASM binary bundling five libraries:
+
+  <-€¢ UOV-Is (pkc+skc)           <-€<- Post-quantum digital signatures (NIST Round 2)
+  <-€¢ McEliece 348864f           <-€<- Post-quantum KEM (NIST Round 4)
+  <-€¢ XChaCha20-Poly1305-SIV    <-€<- Authenticated encryption (libsodium)
+  <-€¢ Argon2id                   <-€<- Password hashing / key derivation (libsodium)
+  <-€¢ BLAKE3                     <-€<- Cryptographic hash function
+
+No internal RNG. Every function requiring randomness takes a caller-supplied
+seed. Calling keygen or sign without a seed returns 0 (error).
+
+Files:  core.js   (Emscripten glue, MODULARIZE=1)
+        core.wasm (WebAssembly binary)
+
+Loading (ES module / Web Worker):
+  importScripts('./core.js');
+  const M = await createModule({ locateFile: path => vendorBase + path });
+  M._module_init();   // must call once before any libsodium operation
+
+Memory helpers (available on Module):
+  M._malloc(n)   <-<-<- pointer   Allocate n bytes in WASM heap
+  M._free(ptr)               Free previously allocated pointer
+  M.HEAPU8                   Uint8Array view of WASM memory
+  M.HEAPU32                  Uint32Array view of WASM memory
+
+All "pointer" arguments are i32 offsets into WASM linear memory.
+Use _malloc to allocate buffers, HEAPU8.set() to write, HEAPU8.slice() to read.
+
+
+================================================================================
+1. module_init
+================================================================================
+
+  int module_init(void)
+
+Call once after loading. Initializes libsodium internals.
+Returns 0 on first init, 1 on subsequent calls. Always <-‰¥ 0 on success.
+
+
+================================================================================
+2. UOV-Is <-€<- Post-Quantum Signatures (Deterministic, Seeded)
+================================================================================
+
+Scheme: Unbalanced Oil and Vinegar, parameter set Is (GF16, n=160, m=64).
+Variant: pkc+skc <-€<- both public and secret keys are compressed.
+Source:  https://github.com/pqov/pqov  (NIST Round 2 submission)
+
+Constants:
+  CSK_LEN   =    32 bytes   (compressed secret key <-€<- seed only)
+  CPK_LEN   = 66576 bytes   (compressed public key <-€<- ~65 KB)
+  SIG_LEN   =    96 bytes   (signature <-€<- fixed size)
+  SEED_MIN  =     1 byte    (minimum seed length; 32 recommended)
+
+Size accessors (callable at runtime):
+  size_t uov_cpk_bytes(void)   <-<-<- 66576
+  size_t uov_csk_bytes(void)   <-<-<-    32
+  size_t uov_sig_bytes(void)   <-<-<-    96
+
+--- keygen ---
+
+  int uov_keygen(
+      const uint8_t *seed,      // caller-supplied seed (REQUIRED, non-NULL)
+      size_t         seed_len,  // length of seed (REQUIRED, > 0)
+      uint8_t       *cpk,       // out: 66576-byte compressed public key
+      uint8_t       *csk        // out:    32-byte compressed secret key
+  )
+
+  Returns: 1 on success, 0 if seed is NULL or seed_len is 0.
+
+  Deterministic: same seed <-<-<- same keypair. Derives sk_seed via SHAKE256(seed).
+  Recommended seed: 32 bytes of high-quality entropy (crypto.getRandomValues).
+
+--- sign ---
+
+  size_t uov_sign(
+      const uint8_t *csk,           // 32-byte compressed secret key
+      size_t         csk_len,       // must be 32
+      const uint8_t *message,       // message bytes to sign
+      size_t         message_len,   // length of message
+      const uint8_t *seed,          // signing seed (REQUIRED, non-NULL)
+      size_t         seed_len,      // seed length (REQUIRED, > 0)
+      uint8_t       *sig,           // out: signature buffer
+      size_t         max_sig_len    // capacity of sig buffer (use 96)
+  )
+
+  Returns: 96 on success, 0 on failure.
+
+  Deterministic: same (csk, message, seed) <-<-<- same signature.
+  Derives per-signature salt via SHAKE256(seed) internally.
+  Signature size is always exactly 96 bytes.
+
+--- verify ---
+
+  int uov_verify(
+      const uint8_t *sig,           // 96-byte signature
+      size_t         sig_len,       // must be 96
+      const uint8_t *cpk,           // 66576-byte compressed public key
+      size_t         cpk_len,       // must be 66576
+      const uint8_t *message,       // original message bytes
+      size_t         message_len    // length of message
+  )
+
+  Returns: 1 if valid, 0 if invalid. Pure computation, no RNG.
+
+
+================================================================================
+3. BLAKE3 <-€<- Cryptographic Hash
+================================================================================
+
+  void blake3_hash(
+      const uint8_t *message,      // input data
+      size_t         message_len,  // length of input
+      uint8_t       *out,          // output buffer
+      size_t         out_len       // desired output length in bytes
+  )
+
+  Returns: nothing (void). Never fails.
+
+  Default digest size: 32 bytes. BLAKE3 is an XOF <-€<- any out_len <-‰¥ 1 is valid.
+  The first 32 bytes are always the standard digest regardless of out_len.
+
+  Known answer:
+    blake3_hash("", 0, out, 32) <-<-<-
+      af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262
+
+
+================================================================================
+4. XChaCha20-Poly1305-SIV <-€<- Deterministic Authenticated Encryption
+================================================================================
+
+SIV (Synthetic IV) mode. The 24-byte nonce is derived deterministically from
+the key, AD, and plaintext via BLAKE3. There is NO caller-supplied nonce.
+Nonce reuse is structurally impossible for distinct (key, message, ad) triples.
+
+Wire format:  nonce(24) || ciphertext(message_len + 16)
+Output size:  message_len + 40   (SIV_OVERHEAD = NONCE_BYTES + MAC_BYTES)
+
+Nonce derivation (inside the WASM):
+  nonce = BLAKE3(
+      "xchacha20-siv-nonce" ||
+      key[32] ||
+      LE64(ad_len) || ad ||
+      LE64(message_len) || message
+  )[0:24]
+
+Constants:
+  KEY_BYTES    = 32 bytes
+  MAC_BYTES    = 16 bytes
+  NONCE_BYTES  = 24 bytes   (embedded in output, derived <-€<- not caller-supplied)
+  SIV_OVERHEAD = 40 bytes
+
+--- encrypt ---
+
+  int xchacha_encrypt(
+      uint8_t       *out,          // out: message_len + 40 bytes
+      size_t        *out_len,      // out: pointer to size_t, receives actual length
+      const uint8_t *message,      // plaintext
+      size_t         message_len,  // plaintext length
+      const uint8_t *ad,           // additional data (NULL/0 if none)
+      size_t         ad_len,       // additional data length
+      const uint8_t *key           // 32-byte key
+  )
+
+  Returns: 0 on success, -1 on error.
+  out_len is a pointer to a size_t in WASM memory. Read with HEAPU32[ptr >>> 2].
+  Output buffer must be <-‰¥ message_len + 40 bytes.
+
+--- decrypt ---
+
+  int xchacha_decrypt(
+      uint8_t       *message,      // out: in_len - 40 bytes
+      size_t        *message_len,  // out: pointer to size_t, receives actual length
+      const uint8_t *in,           // input: nonce(24) || ciphertext(n+16)
+      size_t         in_len,       // input length (must be <-‰¥ 40)
+      const uint8_t *ad,           // additional data (must match encryption)
+      size_t         ad_len,       // additional data length
+      const uint8_t *key           // 32-byte key
+  )
+
+  Returns: 0 on success, non-zero on failure:
+    -1        null out_len pointer, or input too short (< 40 bytes)
+    non-zero  Poly1305 authentication failed (libsodium)
+    -2        SIV nonce mismatch after successful decryption (nonce forgery)
+
+  On failure the message buffer is wiped.
+
+
+================================================================================
+5. Argon2id <-€<- Password Hashing / Key Derivation
+================================================================================
+
+Constants:
+  SALT_BYTES             = 16 bytes
+  OPSLIMIT_MIN           = 1
+  OPSLIMIT_INTERACTIVE   = 2
+  OPSLIMIT_MODERATE      = 3
+  OPSLIMIT_SENSITIVE     = 4
+  MEMLIMIT_MIN           = 8192       (8 KiB)
+  MEMLIMIT_INTERACTIVE   = 67108864   (64 MiB)
+  MEMLIMIT_MODERATE      = 268435456  (256 MiB)
+  MEMLIMIT_SENSITIVE     = 1073741824 (1 GiB)
+
+  int argon2id_hash(
+      uint8_t             *out,        // output key/hash
+      size_t               out_len,    // desired output length (16..max)
+      const char          *passwd,     // password bytes
+      size_t               passwd_len, // password length
+      const uint8_t       *salt,       // 16-byte salt (caller-supplied)
+      unsigned long long   opslimit,   // computation cost
+      size_t               memlimit    // memory cost in bytes
+  )
+
+  Returns: 0 on success, -1 on invalid parameters.
+
+  IMPORTANT <-€<- Emscripten i64 ABI: opslimit is a 64-bit integer split into
+  two i32 arguments in JavaScript:
+    M._argon2id_hash(outPtr, outLen, pwPtr, pwLen, saltPtr,
+                     opslimit_lo, opslimit_hi,   // e.g. (2, 0) for opslimit=2
+                     memlimit)
+  For all standard opslimit values (< 2^32), pass (value, 0).
+
+
+================================================================================
+6. McEliece 348864f <-€<- Post-Quantum Key Encapsulation (Deterministic, Seeded)
+================================================================================
+
+Scheme: Classic McEliece, parameter set 348864f (fast variant).
+Security level: NIST Level 1 (equivalent to AES-128).
+Source: https://classic.mceliece.org  (NIST Round 4 submission)
+
+Constants:
+  PK_BYTES  = 261120 bytes  (public key <-€<- ~255 KB)
+  SK_BYTES  =   6492 bytes  (secret key)
+  CT_BYTES  =     96 bytes  (ciphertext / encapsulation)
+  SS_BYTES  =     32 bytes  (shared secret)
+
+Size accessors (callable at runtime):
+  size_t mceliece_pk_bytes(void)  <-<-<- 261120
+  size_t mceliece_sk_bytes(void)  <-<-<-   6492
+  size_t mceliece_ct_bytes(void)  <-<-<-     96
+  size_t mceliece_ss_bytes(void)  <-<-<-     32
+
+--- keygen ---
+
+  int mceliece_keygen(
+      const uint8_t *seed,      // caller-supplied seed (REQUIRED, non-NULL)
+      size_t         seed_len,  // length of seed (REQUIRED, > 0)
+      uint8_t       *pk,        // out: 261120-byte public key
+      uint8_t       *sk         // out: 6492-byte secret key
+  )
+
+  Returns: 1 on success, 0 if seed is NULL or seed_len is 0.
+
+  Deterministic: same seed <-<-<- same keypair. Expands seed via BLAKE3 XOF
+  with domain "mceliece-keygen" before priming the RNG shim.
+
+--- encap ---
+
+  int mceliece_encap(
+      const uint8_t *pk,        // 261120-byte public key
+      const uint8_t *seed,      // caller-supplied seed (REQUIRED, non-NULL)
+      size_t         seed_len,  // seed length (REQUIRED, > 0)
+      uint8_t       *ct,        // out: 96-byte ciphertext
+      uint8_t       *ss         // out: 32-byte shared secret
+  )
+
+  Returns: 1 on success, 0 if seed is NULL or seed_len is 0.
+
+  Deterministic: same (pk, seed) <-<-<- same (ct, ss). Expands seed via BLAKE3
+  XOF with domain "mceliece-encap" before priming the RNG shim.
+
+--- decap ---
+
+  int mceliece_decap(
+      const uint8_t *sk,        // 6492-byte secret key
+      const uint8_t *ct,        // 96-byte ciphertext
+      uint8_t       *ss         // out: 32-byte shared secret
+  )
+
+  Returns: 1 on success, 0 on error.
+  Pure computation <-€<- no seed required.
+
+
+================================================================================
+7. McEliece Keygen Pipeline <-€<- Argon2id Brainwallet (Deterministic, Seeded)
+================================================================================
+
+  int pipeline_mceliece_keygen(
+      const uint8_t *password,      // brainwallet password
+      size_t         password_len,
+      const uint8_t *kg_salt,       // Argon2id salt (<-‰¥ 16 bytes)
+      size_t         kg_salt_len,
+      uint32_t       opslimit,      // Argon2id computation cost
+      uint32_t       memlimit,      // Argon2id memory cost (bytes)
+      uint8_t       *pk,            // out: 261120-byte McEliece public key
+      uint8_t       *sk             // out: 6492-byte McEliece secret key
+  )
+
+  Returns: 1 on success, 0 on failure.
+
+  Flow: Argon2id(password, kg_salt, opslimit, memlimit) <-<-<- 32-byte seed
+        <-<-<- mceliece_keygen(seed) <-<-<- (pk, sk)
+
+  Use case: derive a McEliece keypair from a password (brainwallet).
+  The pk can be published/pinned; re-derive (pk, sk) later with same password.
+
+
+================================================================================
+8. Compact McEliece Encrypt/Decrypt <-€<- Minimal Wire Format
+================================================================================
+
+Compact pipelines use minimal 1-byte tag headers and hardcoded fixed parameters
+to minimize output size for URL-embedded payloads.
+
+Design principles:
+  <-€¢ 1-byte tag replaces 8<-€“28 byte magic + metadata headers
+  <-€¢ Inner LOCKER_FILE_MAGIC (8 bytes) dropped from entry format
+  <-€¢ Fixed field sizes: kem_ct=96, kg_salt=16
+  <-€¢ encap_seed / extra_seed used only for mceliece_encap, NOT stored in packet
+  <-€¢ AAD = "journal tools file" || kem_ct  (binds symmetric ciphertext to KEM ct)
+  <-€¢ Argon2id hardcoded: opslimit=1, memlimit=128 MiB
+  <-€¢ extra_seed MUST be exactly 32 bytes (caller hashes via BLAKE3 if needed)
+
+Tags:  0x01 = PK pipeline,  0x02 = password pipeline
+
+--- compact password encrypt ---
+
+  uint8_t *pipeline_mceliece_encrypt_compact(
+      const uint8_t *password,        size_t password_len,
+      const uint8_t *filename,        size_t filename_len,
+      const uint8_t *content,         size_t content_len,
+      const uint8_t *extra_seed,      size_t extra_seed_len,  // MUST be 32
+      const uint8_t *derive_prefix,   size_t derive_prefix_len,
+      size_t        *out_len
+  )
+
+  Returns: malloc'd buffer on success, NULL on failure.
+  Returns NULL if extra_seed_len != 32.
+
+  Flow:
+    1. Build compact entry: filename_len[2 LE] || filename || content
+       (no LOCKER_FILE_MAGIC prefix)
+    2. DEFLATE-compress
+    3. Derive kg_salt = BLAKE3(derive_prefix || NUL || password || NUL || compressed)[0:16]
+    4. Argon2id(password, kg_salt, opslimit=1, memlimit=128MiB) <-<-<- seed
+       <-<-<- McEliece keygen <-<-<- (pk, sk)
+    5. McEliece encap(pk, extra_seed) <-<-<- (kem_ct[96], ss[32]); wipe sk
+    6. AAD = "journal tools file" || kem_ct
+    7. XChaCha-SIV encrypt(compressed, AD=AAD, key=ss)
+
+  Wire format:
+    0x02                    // tag byte
+    kg_salt[16]
+    kem_ct[96]
+    siv_ciphertext[N]       // N = compressed_len + 40
+
+  Total overhead: 1 + 16 + 96 + 40 = 153 bytes + DEFLATE(entry)
+
+--- compact password decrypt ---
+
+  uint8_t *pipeline_mceliece_decrypt_compact(
+      const uint8_t *password,     size_t password_len,
+      const uint8_t *in,           size_t in_len,
+      size_t        *out_len
+  )
+
+  Returns: malloc'd buffer on success, NULL on failure.
+  Returns NULL if tag != 0x02 or packet too short.
+  Output format: filename_len[4 LE] || filename || content
+
+  Flow:
+    1. Validate tag == 0x02, derive field offsets from fixed sizes
+    2. Extract kg_salt[16], kem_ct[96], siv_ct[rest]
+    3. Argon2id(password, kg_salt, 1, 128MiB) <-<-<- seed <-<-<- keygen <-<-<- (pk, sk)
+    4. McEliece decap(sk, kem_ct) <-<-<- ss; wipe sk
+    5. AAD = "journal tools file" || kem_ct
+    6. XChaCha-SIV decrypt <-<-<- INFLATE
+    7. Parse compact entry (filename_len[2 LE] || filename || content)
+    8. Return filename_len[4 LE] || filename || content
+
+--- compact PK encrypt ---
+
+  uint8_t *pipeline_mceliece_pk_encrypt_compact(
+      const uint8_t *pk,           size_t pk_len,       // must be 261120
+      const uint8_t *filename,     size_t filename_len,
+      const uint8_t *content,      size_t content_len,
+      const uint8_t *encap_seed,   size_t encap_seed_len, // MUST be 32
+      size_t        *out_len
+  )
+
+  Returns: malloc'd buffer on success, NULL on failure.
+  Returns NULL if encap_seed_len != 32 or pk wrong size.
+
+  Flow:
+    1. Build compact entry: filename_len[2 LE] || filename || content
+    2. DEFLATE-compress
+    3. McEliece encap(pk, encap_seed) <-<-<- (kem_ct[96], ss[32])
+    4. AAD = "journal tools file" || kem_ct
+    5. XChaCha-SIV encrypt(compressed, AD=AAD, key=ss)
+
+  Wire format:
+    0x01                    // tag byte
+    kem_ct[96]
+    siv_ciphertext[N]
+
+  Total overhead: 1 + 96 + 40 = 137 bytes + DEFLATE(entry)
+
+--- compact SK decrypt ---
+
+  uint8_t *pipeline_mceliece_sk_decrypt_compact(
+      const uint8_t *sk,     size_t sk_len,   // must be 6492
+      const uint8_t *in,     size_t in_len,
+      size_t        *out_len
+  )
+
+  Returns: malloc'd buffer on success, NULL on failure.
+  Returns NULL if tag != 0x01 or sk wrong size.
+  Output format: filename_len[4 LE] || filename || content
+
+  Flow:
+    1. Validate tag == 0x01, derive offsets from fixed sizes
+    2. Extract kem_ct[96], siv_ct[rest]
+    3. McEliece decap(sk, kem_ct) <-<-<- ss
+    4. AAD = "journal tools file" || kem_ct
+    5. XChaCha-SIV decrypt <-<-<- INFLATE
+    6. Parse compact entry <-<-<- return filename_len[4 LE] || filename || content
+================================================================================
+9. Determinism Guarantees
+================================================================================
+
+No internal RNG. The OS RNG (sysrng) is stubbed to __builtin_trap() <-€<- any
+accidental call aborts the process.
+
+  Function              Deterministic?   Seed/nonce requirement
+  <-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€<-<-€
+  uov_keygen            YES              seed required (returns 0 without)
+  uov_sign              YES              seed required (returns 0 without)
+  uov_verify            YES              n/a (pure verification)
+  blake3_hash           YES              n/a (pure hash)
+  xchacha_encrypt       YES              key only <-€<- nonce derived via BLAKE3-SIV
+  xchacha_decrypt       YES              key only <-€<- nonce re-derived + verified
+  argon2id_hash         YES              caller supplies password + salt
+  mceliece_keygen       YES              seed required (returns 0 without)
+  mceliece_encap        YES              seed required (returns 0 without)
+  mceliece_decap        YES              n/a (pure decapsulation)
+  pipeline_mceliece_keygen   YES         password + salt <-<-<- Argon2id <-<-<- keygen
+  pipeline_mceliece_encrypt_compact  YES  password + extra_seed(32) <-<-<- compact locker
+  pipeline_mceliece_decrypt_compact  YES  password + compact locker <-<-<- plaintext
+  pipeline_mceliece_pk_encrypt_compact YES pk + encap_seed(32) <-<-<- compact locker
+  pipeline_mceliece_sk_decrypt_compact YES sk + compact locker <-<-<- plaintext
+
+
+================================================================================
+10. Exported WASM Functions
+================================================================================
+
+  _module_init
+  _uov_keygen
+  _uov_sign
+  _uov_verify
+  _uov_cpk_bytes
+  _uov_csk_bytes
+  _uov_sig_bytes
+  _blake3_hash
+  _xchacha_encrypt
+  _xchacha_decrypt
+  _argon2id_hash
+  _mceliece_keygen
+  _mceliece_encap
+  _mceliece_decap
+  _mceliece_pk_bytes
+  _mceliece_sk_bytes
+  _mceliece_ct_bytes
+  _mceliece_ss_bytes
+  _pipeline_mceliece_keygen
+  _pipeline_mceliece_encrypt_compact
+  _pipeline_mceliece_decrypt_compact
+  _pipeline_mceliece_pk_encrypt_compact
+  _pipeline_mceliece_sk_decrypt_compact
+  _malloc
+  _free
+
+Exported runtime methods: HEAPU8, HEAPU32
+
+All unused code has been tree-shaken by LTO + --gc-sections.
+
+
+================================================================================
+11. Security Notes
+================================================================================
+
+1. SEEDED KEYGEN AND SIGN ARE MANDATORY. Passing NULL seed returns 0 (error).
+   Never call _uov_keygen or _uov_sign without a valid seed pointer
+   and a non-zero seed_len.
+
+2. THE SIGNING SEED IS A SALT, NOT A SECRET. Two calls with different seeds
+   on the same message produce different but equally valid signatures.
+   To prevent signature replay, include a sequence number or timestamp inside
+   the message bytes before signing.
+
+3. XCHACHA IS SIV <-€<- THERE IS NO NONCE PARAMETER. The function signatures are:
+     xchacha_encrypt(out, out_len, msg, msg_len, ad, ad_len, key)   // 7 args
+     xchacha_decrypt(msg, msg_len, in, in_len, ad, ad_len, key)     // 7 args
+   Encrypting the same (key, message, ad) twice always yields identical
+   ciphertext <-€<- by design. Include a counter in the message/AD if
+   ciphertext indistinguishability is required.
+
+4. ARGON2ID OPSLIMIT IS SPLIT INTO TWO i32 ARGS IN JS. Always pass (value, 0):
+     M._argon2id_hash(outPtr, outLen, pwPtr, pwLen, saltPtr, 2, 0, memlimit)
+   The '0' is the high half of the i64. Omitting it shifts memlimit.
+
+5. SIZE_T OUT-PARAMS ARE HEAPU32, NOT HEAPU8. Allocate 4 bytes, pass pointer,
+   read with  HEAPU32[ptr >>> 2]  after the call.
+
+6. FREE EVERY ALLOCATION. There is no GC in WASM linear memory.
+
+7. BLAKE3_HASH RETURNS VOID. It never fails. Pass out_len <-‰¥ 1.
+
+8. OUTPUT BUFFER SIZES:
+     uov_keygen       <-<-<- cpk: 66576 bytes, csk: 32 bytes
+     uov_sign         <-<-<- sig: 96 bytes (return value is always 96 on success)
+     xchacha_encrypt  <-<-<- out: message_len + 40 bytes
+     xchacha_decrypt  <-<-<- message: in_len - 40 bytes
+     argon2id_hash    <-<-<- out: caller-chosen (typically 32)
+     blake3_hash      <-<-<- out: caller-chosen (typically 32)
+     mceliece_keygen  <-<-<- pk: 261120 bytes, sk: 6492 bytes
+     mceliece_encap   <-<-<- ct: 96 bytes, ss: 32 bytes
+     mceliece_decap   <-<-<- ss: 32 bytes
+
+9. MCELIECE PUBLIC KEYS ARE LARGE (261 KB). For brainwallet use, the pk can be
+   cached in memory or sessionStorage to avoid re-running keygen on each
+   encrypt. The sk must NEVER be stored <-€<- re-derive from password as needed.
+
+10. MCELIECE KEYGEN IS SLOW (~100<-€“500 ms in ref WASM). The fast variant (f)
+    helps. Run the compact McEliece pipelines in a Web Worker.

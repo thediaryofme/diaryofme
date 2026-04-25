@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="blush">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#E2B59A">
+  <meta name="description" content="tools for my housekeeping.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none'; media-src 'none'; child-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>my tools</title>
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="../assets/icons/icon.svg">
+  <link rel="apple-touch-icon" href="../assets/icons/icon.svg">
+  <link rel="preload" as="font" type="font/woff2" href="../assets/fonts/font.woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/style/site.css">
+  <script src="../assets/style/theme.js"></script>
+  <script defer src="../assets/worker/pwa.js" data-site-root="../"></script>
+  <script defer src="../assets/core/client.js"></script>
+  <script defer src="../assets/core/ui.js"></script>
+  <script defer src="../assets/core/utils.js"></script>
+  <script defer src="./tools.js"></script>
+</head>
+<body class="info-page tools-page">
+  <main>
+    <h1>my tools</h1>
+
+    <section class="info-grid" aria-label="Tools intro">
+      <figure>
+        <div class="info-list">
+          <div class="info-item">
+            <p class="info-copy">These tools help me with my housekeeping. If you know what you're doing, feel free to use them as you like.</p>
+            <p class="info-copy">Note: Please make sure all files you upload are backed up. There is no forgot password!</p>
+          </div>
+        </div>
+      </figure>
+    </section>
+
+    <section class="home-section verify-section" aria-label="sign a message">
+      <h2 id="tools-heading" class="section-heading" aria-live="polite">sign a message</h2>
+
+      <textarea
+        id="tools-message"
+        class="verify-input tools-textarea"
+        rows="1"
+        data-min-lines="1.5"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="message to sign"
+      ></textarea>
+
+      <div class="tools-pw-box verify-upload">
+        <input
+          id="tools-private-key"
+          class="verify-input tools-split-input"
+          type="password"
+          autocomplete="off"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          inputmode="text"
+          placeholder="password"
+        >
+        <div class="encrypt-upload-divider" aria-hidden="true"></div>
+        <input
+          id="tools-signing-seed"
+          class="verify-input tools-split-input"
+          type="text"
+          autocomplete="off"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          inputmode="text"
+          placeholder="seed (optional)"
+        >
+      </div>
+
+      <div class="info-action-row">
+        <button id="tools-submit" class="verify-submit" type="button">sign</button>
+        <button id="tools-qr-submit" class="verify-submit" type="button" hidden>QR code</button>
+        <button id="tools-pubkey-submit" class="verify-submit" type="button" hidden>public key</button>
+      </div>
+    </section>
+
+    <section class="home-section verify-section" aria-label="Hash or verify files">
+      <div class="tools-file-grid">
+        <article class="tools-file-panel">
+          <h2 id="tools-verify-heading" class="section-heading">check a signature</h2>
+          <textarea
+            id="tools-verify-message"
+            class="verify-input tools-textarea"
+            rows="1"
+            data-min-lines="1.5"
+            readonly
+            aria-readonly="true"
+            aria-label="message from uploaded signature"
+            autocomplete="off"
+            spellcheck="false"
+          ></textarea>
+          <div class="verify-upload encrypt-upload-box">
+            <div class="encrypt-upload-row">
+              <label id="tools-verify-signature-upload" class="encrypt-upload-half" for="tools-verify-signature">
+                <input
+                  class="verify-upload-input"
+                  id="tools-verify-signature"
+                  type="file"
+                  accept=".tsig"
+                  aria-label="upload a signature to verify"
+                >
+                <span id="tools-verify-signature-label" class="verify-upload-label">upload signature</span>
+              </label>
+            </div>
+          </div>
+          <button id="tools-verify-submit" class="verify-submit" type="button">verify</button>
+        </article>
+
+        <article class="tools-file-panel">
+          <h2 id="tools-hash-heading" class="section-heading">hash a file</h2>
+          <textarea
+            id="tools-hash-output"
+            class="verify-input tools-textarea"
+            rows="1"
+            data-min-lines="1.5"
+            readonly
+            aria-readonly="true"
+            aria-label="BLAKE3 hash output"
+            autocomplete="off"
+            spellcheck="false"
+          ></textarea>
+          <label id="tools-hash-upload" class="verify-upload" for="tools-hash-file">
+            <input
+              class="verify-upload-input"
+              id="tools-hash-file"
+              type="file"
+              multiple
+              aria-label="upload a file to hash"
+            >
+            <span id="tools-hash-label" class="verify-upload-label">upload file to hash</span>
+          </label>
+          <div class="info-action-row">
+            <button id="tools-hash-submit" class="verify-submit" type="button">hash</button>
+            <button id="tools-hash-copy" class="verify-submit" type="button" hidden>copy</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-section verify-section" aria-label="Lock or unlock a message">
+      <div class="tools-file-grid">
+        <article class="tools-file-panel">
+          <h2 id="tools-lock-msg-heading" class="section-heading">lock a message</h2>
+          <textarea
+            id="tools-lock-msg-text"
+            class="verify-input tools-textarea"
+            rows="1"
+            data-min-lines="1.5"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="message to lock"
+          ></textarea>
+          <div class="tools-pw-box verify-upload">
+            <input
+              id="tools-lock-msg-password"
+              class="verify-input tools-split-input"
+              type="password"
+              autocomplete="off"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="password"
+            >
+            <div class="encrypt-upload-divider" aria-hidden="true"></div>
+            <input
+              id="tools-lock-msg-seed"
+              class="verify-input tools-split-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="seed (optional)"
+            >
+          </div>
+          <div class="info-action-row">
+            <button id="tools-lock-msg-submit" class="verify-submit" type="button">lock</button>
+            <button id="tools-lock-msg-key-submit" class="verify-submit" type="button" hidden>public key</button>
+          </div>
+        </article>
+
+        <article class="tools-file-panel">
+          <h2 id="tools-unlock-msg-heading" class="section-heading">unlock a message</h2>
+          <textarea
+            id="tools-unlock-msg-text"
+            class="verify-input tools-textarea"
+            rows="1"
+            data-min-lines="1.5"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="paste locked message"
+          ></textarea>
+          <input
+            id="tools-unlock-msg-password"
+            class="verify-input"
+            type="password"
+            autocomplete="off"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            inputmode="text"
+            placeholder="password"
+          >
+          <button id="tools-unlock-msg-submit" class="verify-submit" type="button">unlock</button>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-section verify-section" aria-label="Lock or unlock a file">
+      <div class="tools-file-grid">
+        <article class="tools-file-panel">
+          <h2 id="tools-encrypt-heading" class="section-heading">lock a file</h2>
+          <div id="tools-encrypt-upload" class="verify-upload encrypt-upload-box">
+            <div class="encrypt-upload-row">
+              <label class="encrypt-upload-half" for="tools-encrypt-file">
+                <input
+                  class="verify-upload-input"
+                  id="tools-encrypt-file"
+                  type="file"
+                  multiple
+                  aria-label="upload files to lock"
+                >
+                <span id="tools-encrypt-label" class="verify-upload-label">upload files to lock</span>
+              </label>
+              <div class="encrypt-upload-divider" aria-hidden="true"></div>
+              <label class="encrypt-upload-half" for="tools-encrypt-folder">
+                <input
+                  class="verify-upload-input"
+                  id="tools-encrypt-folder"
+                  type="file"
+                  webkitdirectory
+                  multiple
+                  aria-label="upload a folder to lock"
+                >
+                <span class="verify-upload-label">upload folder</span>
+              </label>
+            </div>
+            <ul id="tools-encrypt-file-list" class="encrypt-file-list" hidden></ul>
+          </div>
+          <div class="tools-pw-box verify-upload">
+            <input
+              id="tools-encrypt-password"
+              class="verify-input tools-split-input"
+              type="password"
+              autocomplete="off"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="password"
+            >
+            <div class="encrypt-upload-divider" aria-hidden="true"></div>
+            <input
+              id="tools-encrypt-seed"
+              class="verify-input tools-split-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="seed (optional)"
+            >
+          </div>
+          <button id="tools-encrypt-submit" class="verify-submit" type="button">lock</button>
+        </article>
+
+        <article class="tools-file-panel">
+          <h2 id="tools-decrypt-heading" class="section-heading">unlock a file</h2>
+          <label id="tools-decrypt-upload" class="verify-upload" for="tools-decrypt-file">
+            <input
+              class="verify-upload-input"
+              id="tools-decrypt-file"
+              type="file"
+              aria-label="upload a file to unlock"
+            >
+            <span id="tools-decrypt-label" class="verify-upload-label">upload file to unlock</span>
+          </label>
+          <input
+            id="tools-decrypt-password"
+            class="verify-input"
+            type="password"
+            autocomplete="off"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            inputmode="text"
+            placeholder="password"
+          >
+          <button id="tools-decrypt-submit" class="verify-submit" type="button">unlock</button>
+        </article>
+      </div>
+    </section>
+
+  </main>
+</body>
+</html>
